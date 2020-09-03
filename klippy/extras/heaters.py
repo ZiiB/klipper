@@ -260,7 +260,7 @@ class PrinterHeaters:
                 "Unknown heater '%s'" % (heater_name,))
         return self.heaters[heater_name]
     def setup_sensor(self, config):
-        modules = ["thermistor", "adc_temperature", "spi_temperature",
+        modules = ["thermistor", " adc_measurand", "spi_temperature",
                    "bme280", "htu21d", "lm75"]
         for module_name in modules:
             self.printer.load_object(config, module_name)
