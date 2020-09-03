@@ -92,12 +92,12 @@ def setup_matplotlib(output_to_file):
 
 def import_sensors(config):
     global extras
-    # Load adc_temperature.py and thermistor.py modules
+    # Load adc_measurand.py and thermistor.py modules
     kdir = os.path.join(os.path.dirname(__file__), '..', 'klippy')
     sys.path.append(kdir)
-    import extras.adc_temperature, extras.thermistor
+    import extras.adc_measurand, extras.thermistor
     extras.thermistor.load_config(config)
-    extras.adc_temperature.load_config(config)
+    extras.adc_measurand.load_config(config)
 
 def main():
     # Parse command-line arguments

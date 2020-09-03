@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import math, logging
-from . import adc_temperature
+from . import adc_measurand
 
 KELVIN_TO_CELSIUS = -273.15
 
@@ -79,7 +79,7 @@ def PrinterThermistor(config, params):
         thermistor.setup_coefficients(
             params['t1'], params['r1'], params['t2'], params['r2'],
             params['t3'], params['r3'], name=config.get_name())
-    return adc_temperature.PrinterADCtoTemperature(config, thermistor)
+    return adc_measurand.PrinterADCtoMeasurand(config, thermistor)
 
 # Custom defined thermistors from the config file
 class CustomThermistor:
