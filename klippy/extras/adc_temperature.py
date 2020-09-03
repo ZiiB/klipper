@@ -16,7 +16,7 @@ REPORT_TIME = 0.300
 RANGE_CHECK_COUNT = 4
 
 # Interface between ADC and heater temperature callbacks
-class PrinterADCtoMeasurand:#trop spécifique, doit changer.
+class PrinterADCtoTemperature:
     def __init__(self, config, adc_convert):
         self.adc_convert = adc_convert
         ppins = config.get_printer().lookup_object('pins')
@@ -102,7 +102,7 @@ class LinearVoltage:
         try:
             li = LinearInterpolate(samples)
         except ValueError as e:
-            raise config.error("adc_measurand %s in heater %s" % (
+            raise config.error("adc_temperature %s in heater %s" % (
                 str(e), config.get_name()))
         self.calc_temp = li.interpolate
         self.calc_adc = li.reverse_interpolate
@@ -112,19 +112,15 @@ class CustomLinearVoltage:
     def __init__(self, config):
         self.name = " ".join(config.get_name().split()[1:])
         self.params = []
-		measurand = config.get_name()
-		
         for i in range(1, 1000):
-		#LA, PREMIER CHANGEMENT.
-		#Il doit démarrer une liste, mais une fois la mesurande définie, ne plus en changer.
-            m = config.getfloat(measurand.join("%d") % (i,), None)#doit pouvoir accepter n'importe quelle echelle
-            if m is None:
+            t = config.getfloat("temperature%d" % (i,), None)
+            if t is None:
                 break
             v = config.getfloat("voltage%d" % (i,))
-            self.params.append((m, v))
+            self.params.append((t, v))
     def create(self, config):
         lv = LinearVoltage(config, self.params)
-        return PrinterADCtoMeasurand(config, lv)#trop spécifique, doit changer.
+        return PrinterADCtoTemperature(config, lv)
 
 
 ######################################################################
@@ -138,7 +134,7 @@ class LinearResistance:
         try:
             self.li = LinearInterpolate([(r, t) for t, r in samples])
         except ValueError as e:
-            raise config.error("adc_measurand %s in heater %s" % (
+            raise config.error("adc_temperature %s in heater %s" % (
                 str(e), config.get_name()))
     def calc_temp(self, adc):
         # Calculate temperature from adc
@@ -163,7 +159,7 @@ class CustomLinearResistance:
             self.samples.append((t, r))
     def create(self, config):
         lr = LinearResistance(config, self.samples)
-        return PrinterADCtoMeasurand(config, lr)
+        return PrinterADCtoTemperature(config, lr)
 
 
 ######################################################################
@@ -289,18 +285,17 @@ def load_config(config):
     pheaters = config.get_printer().load_object(config, "heaters")
     for sensor_type, params in DefaultVoltageSensors:
         func = (lambda config, params=params:
-                PrinterADCtoMeasurand(config, LinearVoltage(config, params)))
+                PrinterADCtoTemperature(config, LinearVoltage(config, params)))
         pheaters.add_sensor_factory(sensor_type, func)
     for sensor_type, params in DefaultResistanceSensors:
         func = (lambda config, params=params:
-                PrinterADCtoMeasurand(config,
+                PrinterADCtoTemperature(config,
                                         LinearResistance(config, params)))
         pheaters.add_sensor_factory(sensor_type, func)
 
 def load_config_prefix(config):
     if config.get("resistance1", None) is None:
-        custom_sensor = CustomLinearVoltage(config)#si la lecture n'est pas une resistance, c'est une température.
-		#C'est la première fonction à changer.
+        custom_sensor = CustomLinearVoltage(config)
     else:
         custom_sensor = CustomLinearResistance(config)
     pheaters = config.get_printer().load_object(config, "heaters")
