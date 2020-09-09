@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
-#TO DO : GET GCODE COMMANDS TO WORK
+#TO DO : read the correct current value
 
 ADC_REPORT_TIME = 0.015
 ADC_SAMPLE_TIME = 0.001
@@ -19,6 +19,7 @@ class Drv8801:
 	def __init__(self, config):
 		self.printer = config.get_printer()
 		self.toolhead = self.ppins =  None
+		motor_name = config.get_name().split()[1]
 		self.printer.register_event_handler("klippy:ready", self._handle_ready)
 		self.reactor = self.printer.get_reactor()
 		self.lastIsensReading = 0.
@@ -45,7 +46,10 @@ class Drv8801:
 		
 		# Register commands
 		self.gcode = self.printer.lookup_object('gcode')
-		self.gcode.register_command('QUERY_DRV8801_CURRENT', self.cmd_QUERY_CURRENT)
+		self.gcode.register_command('QUERY_DRV8801', self.cmd_QUERY_CURRENT)
+		self.gcode.register_mux_command("QUERY_DRV8801_CURRENT", "DRV8801", motor_name,
+                                   self.cmd_QUERY_CURRENT,
+                                   desc=self.cmd_QUERY_DRV8801_CURRENT_help)
 		#self.gcode.register_command('DRIVE_UNTIL_TRIGGER',self.cmd_DRIVE_UNTIL_TRIGGER)
 		
 	def _handle_ready(self):
@@ -61,9 +65,10 @@ class Drv8801:
 		self.isens_triggered = self.lastIsensReading > self.isens_trigger
 		return eventtime + 1#will execute once more in a second	
 		
+	cmd_QUERY_DRV8801_CURRENT_help = "print the output of the Isens pin on the DRV8801 motor driver"	
 	def cmd_QUERY_CURRENT(self, gcmd):
 		response = "current = " + str(self.lastIsensReading)+("/0.5")
-
+		gcmd.respond_info(response)
 	"""def cmd_DRIVE_UNTIL_TRIGGER(self, gcmd):##WIP
 		direction = DOWN
 		if self.lastdirection == direction:
