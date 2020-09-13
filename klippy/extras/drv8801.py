@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
-#TO DO : read the correct current value
+#TO DO : read the correct current value, control of the DIR and SPEED pins.
 
 ADC_REPORT_TIME = 0.015
 ADC_SAMPLE_TIME = 0.001
@@ -13,7 +13,7 @@ ADC_SAMPLE_COUNT = 8
 UP = 1
 DOWN = 0
 
-PIN_MIN_TIME = 0.100
+PIN_MIN_TIME = 0.1
 	
 class Drv8801:
 	def __init__(self, config):
@@ -21,6 +21,7 @@ class Drv8801:
 		self.toolhead = self.ppins =  None
 		self.motor_name = config.get_name().split()[-1]
 		self.printer.register_event_handler("klippy:ready", self._handle_ready)
+		self.printer.register_event_handler("DRV8801:stalled", self._handle_stall)
 		self.reactor = self.printer.get_reactor()
 		
 		self.lastIsensReading = 0.
@@ -46,9 +47,6 @@ class Drv8801:
 		# isens value updating 
 		self.isens_value_update_timer = self.reactor.register_timer(self.isens_value_update_event)
 		
-		# je ne sais pas ce que je fais, j'essaie d'implanter la facon dont est gere le home
-		#self._move_completion = self.reactor.register_callback(self._stall_retry)
-		
 		# Register commands
 		self.gcode = self.printer.lookup_object('gcode')
 		#DRV_STATUS DRV8801=name"
@@ -59,37 +57,32 @@ class Drv8801:
 		self.gcode.register_mux_command("QUERY_CURRENT", "DRV8801", self.motor_name,
                                    self.cmd_QUERY_CURRENT,
                                    desc=self.cmd_QUERY_DRV8801_CURRENT_help)
-		#"DRIVE_UNTIL_TRIGGER DRV8801=name"
-		self.gcode.register_mux_command("DRIVE_UNTIL_TRIGGER", "DRV8801", self.motor_name,
-                                   self.cmd_DRIVE_UNTIL_TRIGGER,
-                                   desc=self.cmd_DRIVE_UNTIL_TRIGGER_help)
+		#"DRIVE_UNTIL_STALL DRV8801=name"
+		self.gcode.register_mux_command("DRIVE_UNTIL_STALL", "DRV8801", self.motor_name,
+                                   self.cmd_DRIVE_UNTIL_STALL,
+                                   desc=self.cmd_DRIVE_UNTIL_STALL_help)
 		
 	def _handle_ready(self):
 		# Start extrude factor update timer
 		self.toolhead = self.printer.lookup_object('toolhead')
 		self.reactor.update_timer(self.isens_value_update_timer,self.reactor.NOW)
-								  
+	
+	def _handle_stall(self):
+		# cut the power to the motor
+		#print_time =
+		self.mcu_dirpin.set_digital(print_time, 0)
+		self.mcu_speedpin.set_pwm(print_time, 0)
+		
 	def adc_callback(self, read_time, read_value):
         # read sensor value
-		self.lastIsensReading = round(read_value , 1)
+		self.lastIsensReading = round(read_value*2 ,1)#0.5V = 1A
 		
 	def isens_value_update_event(self, eventtime):
 		self.isens_triggered = self.lastIsensReading > self.isens_trigger
-		return eventtime + 1#will execute once more in a second	
+		if self.isens_triggered :
+			self.printer.send_event("DRV8801:stalled")
+		return eventtime + 1#will execute once more in a second. Might try to reduce this interval
 	
-	"""def _stall_retry(self, eventtime):
-		self._trigger_completion = self._reactor.completion()
-		#keep the motor moving until current trigger trips
-        while 1:
-            did_trigger = self._trigger_completion.wait(eventtime + 0.100)
-            if did_trigger is not None:
-                # Motor stalled
-                return True
-            # Check for timeout
-            last = self._mcu.estimated_print_time(self.last_value_time)
-            if last > self._home_end_time or self._mcu.is_shutdown():
-                return False"""
-
 	cmd_DRV8801_STATUS_help = "Has the DRV8801 current trigger tripped ?"	
 	def cmd_DRV8801_STATUS(self, gcmd):
 		response = ""
@@ -101,29 +94,26 @@ class Drv8801:
 		
 	cmd_QUERY_DRV8801_CURRENT_help = "print the output of the Isens pin on the DRV8801 motor driver"	
 	def cmd_QUERY_CURRENT(self, gcmd):
-		response = "current = " + str(self.lastIsensReading)+("/0.5")
+		response = "current = " + str(self.lastIsensReading)
 		gcmd.respond_info(response)
 		
-	cmd_DRIVE_UNTIL_TRIGGER_help = "move the motor until it draws a predetermined amount of current"
-	def cmd_DRIVE_UNTIL_TRIGGER(self, gcmd):##WIP
-		## could wake up the callback at the start..
-		direction = DOWN
+	cmd_DRIVE_UNTIL_STALL_help = "move the motor until it draws a predetermined amount of current"
+	def cmd_DRIVE_UNTIL_STALL(self, gcmd):##WIP
+		"""direction = DOWN
 		if self.lastdirection == direction:
 			direction = UP
-		self.lastdirection = direction
+		self.lastdirection = direction"""
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
-		self.mcu_dirpin.set_digital(print_time, direction)
-		while self.isens_triggered == False:
-			## ..check when it triggers..
-			print_time=print_time+0.015
-			isens_value_update_event(print_time)
-			self.mcu_speedpin.set_pwm(print_time, 255)
-		self.mcu_speedpin.set_digital(print_time, 0 )	
-		self.last_value = value
+		#
+		#self.mcu_dirpin.set_digital(print_time, direction)
+		self.mcu_dirpin.set_digital(print_time, 1)
+		#gcmd.respond_info(str(print_time))
+		#self.mcu_speedpin.set_pwm(print_time, 1.)
+		#self.mcu_speedpin.set_pwm(print_time+2, 0. )	
 		self.last_value_time = print_time
-		##..Then put it to sleep until the next cycle.
 		
-        
+		
+		
 def load_config_prefix(config):
     return Drv8801(config)
