@@ -6,12 +6,14 @@
 
 #TO DO : read the correct current value, control of the DIR and SPEED pins.
 
+import logging
+
 ADC_REPORT_TIME = 0.015
 ADC_SAMPLE_TIME = 0.001
 ADC_SAMPLE_COUNT = 8
 
-UP = 1
-DOWN = 0
+UP = 1.
+DOWN = 0.
 
 PIN_MIN_TIME = 0.1
 	
@@ -32,7 +34,9 @@ class Drv8801:
 		#pins setup
 		ppins = self.printer.lookup_object('pins')
 		self.mcu_speedpin = ppins.setup_pin('pwm', config.get('SPEEDpin'))
+		self.mcu_speedpin.setup_max_duration(0.)#may want to give it a max_duration > 0, to catch a clamping failure ?
 		self.mcu_dirpin = ppins.setup_pin('digital_out', config.get('DIRpin'))
+		self.mcu_dirpin.setup_max_duration(0.)
 		
 		#config parameters
 		self.mincurrent = config.getfloat('minimum_current' ,0. ) 
@@ -62,6 +66,21 @@ class Drv8801:
                                    self.cmd_DRIVE_UNTIL_STALL,
                                    desc=self.cmd_DRIVE_UNTIL_STALL_help)
 		
+		#"CLAMP_UP DRV8801=name"
+		self.gcode.register_mux_command("CLAMP_UP", "DRV8801", self.motor_name,
+                                   self.cmd_CLAMP_UP,
+                                   desc=self.cmd_CLAMP_UP_help)
+								   
+		#"CLAMP_DOWN DRV8801=name"
+		self.gcode.register_mux_command("CLAMP_DOWN", "DRV8801", self.motor_name,
+                                   self.cmd_CLAMP_DOWN,
+                                   desc=self.cmd_CLAMP_DOWN_help)
+		
+		#"DRV_RESET DRV8801=name"
+		self.gcode.register_mux_command("DRV_RESET", "DRV8801", self.motor_name,
+                                   self.cmd_DRV_RESET,
+                                   desc=self.cmd_DRV_RESET_help)
+ 
 	def _handle_ready(self):
 		# Start extrude factor update timer
 		self.toolhead = self.printer.lookup_object('toolhead')
@@ -69,19 +88,24 @@ class Drv8801:
 	
 	def _handle_stall(self):
 		# cut the power to the motor
-		#print_time =
-		self.mcu_dirpin.set_digital(print_time, 0)
-		self.mcu_speedpin.set_pwm(print_time, 0)
+		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
+		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
+		self.mcu_speedpin.set_pwm(print_time, 0.)
+		self.last_value_time = print_time
+
+		logging.info("clamp shut off")
 		
 	def adc_callback(self, read_time, read_value):
         # read sensor value
 		self.lastIsensReading = round(read_value*2 ,1)#0.5V = 1A
 		
+		logging.debug("temp: %.3f %f = %f", read_time, self.lastIsensReading)
+		
 	def isens_value_update_event(self, eventtime):
 		self.isens_triggered = self.lastIsensReading > self.isens_trigger
 		if self.isens_triggered :
 			self.printer.send_event("DRV8801:stalled")
-		return eventtime + 1#will execute once more in a second. Might try to reduce this interval
+		return eventtime + 0.15#will execute once more in a second. Might try to reduce this interval
 	
 	cmd_DRV8801_STATUS_help = "Has the DRV8801 current trigger tripped ?"	
 	def cmd_DRV8801_STATUS(self, gcmd):
@@ -99,21 +123,46 @@ class Drv8801:
 		
 	cmd_DRIVE_UNTIL_STALL_help = "move the motor until it draws a predetermined amount of current"
 	def cmd_DRIVE_UNTIL_STALL(self, gcmd):##WIP
-		"""direction = DOWN
+		direction = DOWN
 		if self.lastdirection == direction:
 			direction = UP
-		self.lastdirection = direction"""
+		self.lastdirection = direction
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
-		#
-		#self.mcu_dirpin.set_digital(print_time, direction)
-		self.mcu_dirpin.set_digital(print_time, 1)
+	
+		self.mcu_dirpin.set_digital(print_time, direction)
 		#gcmd.respond_info(str(print_time))
-		#self.mcu_speedpin.set_pwm(print_time, 1.)
-		#self.mcu_speedpin.set_pwm(print_time+2, 0. )	
+		self.mcu_speedpin.set_pwm(print_time, 1.)
 		self.last_value_time = print_time
+	
+	cmd_CLAMP_UP_help = "move the motor up"
+	def cmd_CLAMP_UP(self, gcmd):
+		direction = UP
+		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
+		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
+	
+		self.mcu_dirpin.set_digital(print_time, direction)
+		self.mcu_speedpin.set_pwm(print_time, 1.)
 		
+		self.last_value_time = print_time	
 		
+	cmd_CLAMP_DOWN_help = "move the motor down"
+	def cmd_CLAMP_DOWN(self, gcmd):
+		direction = DOWN
+		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
+		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
+	
+		self.mcu_dirpin.set_digital(print_time, direction)
+		self.mcu_speedpin.set_pwm(print_time, 1.)
+		
+		self.last_value_time = print_time	
+		
+	cmd_DRV_RESET_help = "reset the speed pin of the driver"
+	def cmd_DRV_RESET(self, gcmd):
+		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
+		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
+		self.mcu_speedpin.set_pwm(print_time, 0.)
+		self.last_value_time = print_time
 		
 def load_config_prefix(config):
     return Drv8801(config)
