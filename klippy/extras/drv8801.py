@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
-#TO DO : read the correct current value, control of the DIR and SPEED pins.
+#TO DO : read the correct current value
 
 import logging
 
@@ -45,9 +45,10 @@ class Drv8801:
 		
 		# Start adc
 		self.mcu_isens = ppins.setup_pin('adc', config.get('Isenspin'))
-		self.mcu_isens.setup_minmax(ADC_SAMPLE_TIME, ADC_SAMPLE_COUNT,self.mincurrent,self.maxcurrent)
 		self.mcu_isens.setup_adc_callback(ADC_REPORT_TIME, self.adc_callback)
-		
+		self.mcu_isens.setup_minmax(ADC_SAMPLE_TIME, ADC_SAMPLE_COUNT,self.mincurrent,self.maxcurrent)
+		query_adc = self.printer.load_object(config, 'query_adc')
+		query_adc.register_adc(self.motor_name, self.mcu_isens)
 		# isens value updating 
 		self.isens_value_update_timer = self.reactor.register_timer(self.isens_value_update_event)
 		
@@ -97,9 +98,9 @@ class Drv8801:
 		
 	def adc_callback(self, read_time, read_value):
         # read sensor value
-		self.lastIsensReading = round(read_value*2 ,1)#0.5V = 1A
+		self.lastIsensReading = round(read_value*2 ,5)#0.5V = 1A
 		
-		logging.debug("temp: %.3f %f = %f", read_time, self.lastIsensReading)
+		logging.info("current: %f at Time %.2f" %, read_time, self.lastIsensReading)
 		
 	def isens_value_update_event(self, eventtime):
 		self.isens_triggered = self.lastIsensReading > self.isens_trigger
