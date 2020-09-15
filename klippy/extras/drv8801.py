@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
-#TO DO : read the correct current value
+#TO DO : make current pike detection more reliable. 
 
 import logging
 
@@ -100,16 +100,18 @@ class Drv8801:
         # read sensor value
 		self.lastIsensReading = round(read_value*2 ,5)#0.5V = 1A
 		
-		logging.info("current: %f at Time %.2f" %, read_time, self.lastIsensReading)
+		#logging.info("current: %f at Time %.2f", self.lastIsensReading, read_time)
 		
 	def isens_value_update_event(self, eventtime):
 		self.isens_triggered = self.lastIsensReading > self.isens_trigger
 		if self.isens_triggered :
 			self.printer.send_event("DRV8801:stalled")
+			logging.info("stall trigger at %f A, at Time %.2f", self.lastIsensReading, eventtime)
 		return eventtime + 0.15#will execute once more in a second. Might try to reduce this interval
 	
 	cmd_DRV8801_STATUS_help = "Has the DRV8801 current trigger tripped ?"	
 	def cmd_DRV8801_STATUS(self, gcmd):
+		logging.info("DRV8801_STATUS")
 		response = ""
 		if self.isens_triggered :
 			response = response + "Tripped"
@@ -119,25 +121,25 @@ class Drv8801:
 		
 	cmd_QUERY_DRV8801_CURRENT_help = "print the output of the Isens pin on the DRV8801 motor driver"	
 	def cmd_QUERY_CURRENT(self, gcmd):
+		logging.info("QUERY_CURRENT")
 		response = "current = " + str(self.lastIsensReading)
 		gcmd.respond_info(response)
 		
-	cmd_DRIVE_UNTIL_STALL_help = "move the motor until it draws a predetermined amount of current"
-	def cmd_DRIVE_UNTIL_STALL(self, gcmd):##WIP
+	cmd_DRIVE_UNTIL_STALL_help = "move the motor until stall"
+	def cmd_DRIVE_UNTIL_STALL(self, gcmd):#Redundant with CLAMP_UP/DOWN
 		direction = DOWN
 		if self.lastdirection == direction:
 			direction = UP
 		self.lastdirection = direction
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
-	
 		self.mcu_dirpin.set_digital(print_time, direction)
-		#gcmd.respond_info(str(print_time))
 		self.mcu_speedpin.set_pwm(print_time, 1.)
 		self.last_value_time = print_time
 	
-	cmd_CLAMP_UP_help = "move the motor up"
+	cmd_CLAMP_UP_help = "move the motor up until stall"
 	def cmd_CLAMP_UP(self, gcmd):
+		logging.info("CLAMP_UP")
 		direction = UP
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
@@ -147,8 +149,9 @@ class Drv8801:
 		
 		self.last_value_time = print_time	
 		
-	cmd_CLAMP_DOWN_help = "move the motor down"
+	cmd_CLAMP_DOWN_help = "move the motor down until stall"
 	def cmd_CLAMP_DOWN(self, gcmd):
+		logging.info("CLAMP_DOWN")
 		direction = DOWN
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
@@ -160,6 +163,7 @@ class Drv8801:
 		
 	cmd_DRV_RESET_help = "reset the speed pin of the driver"
 	def cmd_DRV_RESET(self, gcmd):
+		logging.info("DRV_RESET")
 		print_time = self.printer.lookup_object('toolhead').get_last_move_time()
 		print_time = max(print_time, self.last_value_time + PIN_MIN_TIME)
 		self.mcu_speedpin.set_pwm(print_time, 0.)
