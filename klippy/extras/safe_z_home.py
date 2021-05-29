@@ -8,19 +8,19 @@ class SafeZHoming:
     def __init__(self, config):
         self.printer = config.get_printer()
         try:
-            x_pos, y_pos = config.get("home_xy_position",
-                                      default=",").split(',')
+            x_pos, y_pos = config.get("home_xy_position").split(',')
             self.home_x_pos, self.home_y_pos = float(x_pos), float(y_pos)
         except:
-            raise config.error("Unable to parse home_xy_position in %s" % (
-                config.get_name()))
+            raise config.error("Unable to parse home_xy_position in %s"
+                               % (config.get_name(),))
 
         self.z_hop = config.getfloat("z_hop", default=0.0)
         self.z_hop_speed = config.getfloat('z_hop_speed', 15., above=0.)
-        self.max_z = config.getsection('stepper_z').getfloat('position_max')
+        zconfig = config.getsection('stepper_z')
+        self.max_z = zconfig.getfloat('position_max', note_valid=False)
         self.speed = config.getfloat('speed', 50.0, above=0.)
         self.move_to_previous = config.getboolean('move_to_previous', False)
-        self.printer.load_object(config, 'gcode_move')
+        self.printer.load_object(config, 'homing')
         self.gcode = self.printer.lookup_object('gcode')
         self.prev_G28 = self.gcode.register_command("G28", None)
         self.gcode.register_command("G28", self.cmd_G28)
@@ -34,22 +34,23 @@ class SafeZHoming:
 
         # Perform Z Hop if necessary
         if self.z_hop != 0.0:
-            # Check if Z axis is homed or has a known position
+            # Check if Z axis is homed and its last known position
             curtime = self.printer.get_reactor().monotonic()
             kin_status = toolhead.get_kinematics().get_status(curtime)
-            if 'z' in kin_status['homed_axes']:
-                # Check if the zhop would exceed the printer limits
-                pos = toolhead.get_position()
-                if pos[2] + self.z_hop > self.max_z:
-                    gcmd.respond_info(
-                        "No zhop performed, target Z out of bounds: " +
-                        str(pos[2] + self.z_hop))
-                elif pos[2] < self.z_hop:
-                    self._perform_z_hop()
-            else:
-                self._perform_z_hop()
+            pos = toolhead.get_position()
+
+            if 'z' not in kin_status['homed_axes']:
+                # Always perform the z_hop if the Z axis is not homed
+                pos[2] = 0
+                toolhead.set_position(pos, homing_axes=[2])
+                toolhead.manual_move([None, None, self.z_hop],
+                                     self.z_hop_speed)
                 if hasattr(toolhead.get_kinematics(), "note_z_not_homed"):
                     toolhead.get_kinematics().note_z_not_homed()
+            elif pos[2] < self.z_hop:
+                # If the Z axis is homed, and below z_hop, lift it to z_hop
+                toolhead.manual_move([None, None, self.z_hop],
+                                     self.z_hop_speed)
 
         # Determine which axes we need to home
         need_x, need_y, need_z = [gcmd.get(axis, None) is not None
@@ -87,13 +88,6 @@ class SafeZHoming:
             # Move XY back to previous positions
             if self.move_to_previous:
                 toolhead.manual_move(prevpos[:2], self.speed)
-
-    def _perform_z_hop(self):
-        toolhead = self.printer.lookup_object('toolhead')
-        # Perform the Z-Hop
-        pos = toolhead.get_position()
-        toolhead.set_position(pos, homing_axes=[2])
-        toolhead.manual_move([None, None, pos[2]+self.z_hop], self.z_hop_speed)
 
 def load_config(config):
     return SafeZHoming(config)

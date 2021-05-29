@@ -1,9 +1,9 @@
 # Add ability to define custom g-code macros
 #
-# Copyright (C) 2018-2019  Kevin O'Connor <kevin@koconnor.net>
+# Copyright (C) 2018-2021  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import traceback, logging, ast
+import traceback, logging, ast, copy
 import jinja2
 
 
@@ -26,7 +26,7 @@ class GetStatusWrapper:
             raise KeyError(val)
         if self.eventtime is None:
             self.eventtime = self.printer.get_reactor().monotonic()
-        self.cache[sval] = res = dict(po.get_status(self.eventtime))
+        self.cache[sval] = res = copy.deepcopy(po.get_status(self.eventtime))
         return res
     def __contains__(self, val):
         try:
@@ -87,12 +87,20 @@ class PrinterGCodeMacro:
         return ""
     def _action_raise_error(self, msg):
         raise self.printer.command_error(msg)
+    def _action_call_remote_method(self, method, **kwargs):
+        webhooks = self.printer.lookup_object('webhooks')
+        try:
+            webhooks.call_remote_method(method, **kwargs)
+        except self.printer.command_error:
+            logging.exception("Remote Call Error")
+        return ""
     def create_template_context(self, eventtime=None):
         return {
             'printer': GetStatusWrapper(self.printer, eventtime),
             'action_emergency_stop': self._action_emergency_stop,
             'action_respond_info': self._action_respond_info,
             'action_raise_error': self._action_raise_error,
+            'action_call_remote_method': self._action_call_remote_method,
         }
 
 def load_config(config):
@@ -105,6 +113,10 @@ def load_config(config):
 
 class GCodeMacro:
     def __init__(self, config):
+        if len(config.get_name().split()) > 2:
+            raise config.error(
+                    "Name of section '%s' contains illegal whitespace"
+                    % (config.get_name()))
         name = config.get_name().split()[1]
         self.alias = name.upper()
         self.printer = printer = config.get_printer()
@@ -112,6 +124,7 @@ class GCodeMacro:
         self.template = gcode_macro.load_template(config, 'gcode')
         self.gcode = printer.lookup_object('gcode')
         self.rename_existing = config.get("rename_existing", None)
+        self.cmd_desc = config.get("description", "G-Code macro")
         if self.rename_existing is not None:
             if (self.gcode.is_traditional_gcode(self.alias)
                 != self.gcode.is_traditional_gcode(self.rename_existing)):
@@ -149,9 +162,8 @@ class GCodeMacro:
         pdesc = "Renamed builtin of '%s'" % (self.alias,)
         self.gcode.register_command(self.rename_existing, prev_cmd, desc=pdesc)
         self.gcode.register_command(self.alias, self.cmd, desc=self.cmd_desc)
-        return dict(self.variables)
     def get_status(self, eventtime):
-        return dict(self.variables)
+        return self.variables
     cmd_SET_GCODE_VARIABLE_help = "Set the value of a G-Code macro variable"
     def cmd_SET_GCODE_VARIABLE(self, gcmd):
         variable = gcmd.get('VARIABLE')
@@ -166,7 +178,6 @@ class GCodeMacro:
         except ValueError as e:
             raise gcmd.error("Unable to parse '%s' as a literal" % (value,))
         self.variables[variable] = literal
-    cmd_desc = "G-Code macro"
     def cmd(self, gcmd):
         if self.in_script:
             raise gcmd.error("Macro %s called recursively" % (self.alias,))
