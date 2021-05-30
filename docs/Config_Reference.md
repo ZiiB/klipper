@@ -1813,10 +1813,10 @@ more information.
 
 Manual steppers (one may define any number of sections with a
 "manual_stepper" prefix). These are steppers that are controlled by
-the MANUAL_STEPPER g-code command. For example: "MANUAL_STEPPER
+the MANUAL_STEPPER or MANUAL_AXIS g-code command. For example: "MANUAL_STEPPER
 STEPPER=my_stepper MOVE=10 SPEED=5". See
 [G-Codes](G-Codes.md#manual-stepper-commands) file for a description
-of the MANUAL_STEPPER command. The steppers are not connected to the
+of the MANUAL_STEPPER and MANUAL_AXIS commands. The steppers are not connected to the
 normal printer kinematics.
 
 ```
@@ -1836,10 +1836,19 @@ normal printer kinematics.
 #   acceleration of zero will result in no acceleration. This value
 #   will be used if a MANUAL_STEPPER command does not specify an ACCEL
 #   parameter. The default is zero.
+#axis:
+#   all manual_stepper that share the same "axis" attribute are linked.
+#   to move them as once, use the MANUAL_AXIS command.
 #endstop_pin:
 #   Endstop switch detection pin. If specified, then one may perform
 #   "homing moves" by adding a STOP_ON_ENDSTOP parameter to
 #   MANUAL_STEPPER movement commands.
+#   if the section has an "axis" specified, then at least one endstop 
+#   is needed. The following attributes must then be specified by one 
+#   of the axis's manual_stepper.
+#position_endstop:
+#position_min:
+#position_max:  
 ```
 
 # Custom heaters and sensors

@@ -9,7 +9,24 @@ from . import force_move
 class ManualStepper:
     def __init__(self, config):
         self.printer = config.get_printer()
-        if config.get('endstop_pin', None) is not None:
+        self.axis = config.get('axis', None)
+        self.limits = (1.0, -1.0)
+        self.must_home = False
+        if self.axis is not None:
+            for manual_stepper in self.printer.lookup_objects('manual_stepper'):
+                axis_rail = manual_stepper[1].get_axis_rail(self.axis)
+                if axis_rail is not None:
+                    axis_rail.add_extra_stepper(config)
+                    return
+            # Create axis rail
+            if config.get('endstop_pin', None)is not None:
+                self.must_home = True
+            self.can_home = True
+            self.rail = stepper.PrinterRail(config, 
+                    need_position_minmax= True if self.must_home else False,
+                    default_position_endstop= None if self.must_home else 0.)
+            self.steppers = self.rail.get_steppers()
+        elif config.get('endstop_pin', None) is not None:
             self.can_home = True
             self.rail = stepper.PrinterRail(
                 config, need_position_minmax=False, default_position_endstop=0.)
@@ -21,6 +38,21 @@ class ManualStepper:
         self.velocity = config.getfloat('velocity', 5., above=0.)
         self.accel = self.homing_accel = config.getfloat('accel', 0., minval=0.)
         self.next_cmd_time = 0.
+        self.printer.register_event_handler("klippy:connect",
+                    self.handle_connect)
+        # Register commands
+        if self.axis is not None:
+            gcode = self.printer.lookup_object('gcode')
+            gcode.register_mux_command('MANUAL_AXIS', "AXIS",
+                                    self.axis, self.cmd_MANUAL_AXIS,
+                                    desc=self.cmd_MANUAL_AXIS_help)
+        else:
+            stepper_name = config.get_name().split()[1]
+            gcode = self.printer.lookup_object('gcode')
+            gcode.register_mux_command('MANUAL_STEPPER', "STEPPER",
+                                    stepper_name, self.cmd_MANUAL_STEPPER,
+                                    desc=self.cmd_MANUAL_STEPPER_help)
+    def handle_connect(self):
         # Setup iterative solver
         ffi_main, ffi_lib = chelper.get_ffi()
         self.trapq = ffi_main.gc(ffi_lib.trapq_alloc(), ffi_lib.trapq_free)
@@ -28,12 +60,9 @@ class ManualStepper:
         self.trapq_free_moves = ffi_lib.trapq_free_moves
         self.rail.setup_itersolve('cartesian_stepper_alloc', 'x')
         self.rail.set_trapq(self.trapq)
-        # Register commands
-        stepper_name = config.get_name().split()[1]
-        gcode = self.printer.lookup_object('gcode')
-        gcode.register_mux_command('MANUAL_STEPPER', "STEPPER",
-                                   stepper_name, self.cmd_MANUAL_STEPPER,
-                                   desc=self.cmd_MANUAL_STEPPER_help)
+        self.rail.set_max_jerk(9999999.9, 9999999.9) #remove before PR
+    def get_axis_rail(self, name):
+        return self.rail if name == self.axis else None
     def sync_print_time(self):
         toolhead = self.printer.lookup_object('toolhead')
         print_time = toolhead.get_last_move_time()
@@ -55,6 +84,17 @@ class ManualStepper:
         self.sync_print_time()
     def do_set_position(self, setpos):
         self.rail.set_position([setpos, 0., 0.])
+    def check_move(self, movepos):
+        if self.must_home and self.axis is not None:
+            if self.limits[0] > self.limits[1]:
+                raise self.printer.command_error(
+                            "Must home axis %s first" % self.axis)
+                return False
+            elif movepos < self.limits[0] or movepos > self.limits[1]:
+                raise self.printer.command_error(
+                            "Move out of range: %.3f" % movepos )
+                return False
+        return True
     def do_move(self, movepos, speed, accel, sync=True):
         self.sync_print_time()
         cp = self.rail.get_commanded_position()
@@ -89,20 +129,39 @@ class ManualStepper:
             self.do_enable(enable)
         setpos = gcmd.get_float('SET_POSITION', None)
         if setpos is not None:
-            self.do_set_position(setpos)
+            if not self.must_home:
+                self.do_set_position(setpos)
+            else:
+                raise self.printer.command_error(
+                            "Axis position cannot be overridden")
         speed = gcmd.get_float('SPEED', self.velocity, above=0.)
         accel = gcmd.get_float('ACCEL', self.accel, minval=0.)
         homing_move = gcmd.get_int('STOP_ON_ENDSTOP', 0)
         if homing_move:
             movepos = gcmd.get_float('MOVE')
-            self.do_homing_move(movepos, speed, accel,
-                                homing_move > 0, abs(homing_move) == 1)
+            check_trigger = abs(homing_move) == 1
+            try:
+                self.do_homing_move(movepos, speed, accel, homing_move > 0,
+                            True if self.must_home else check_trigger)
+            except self.printer.command_error:
+                if check_trigger: raise
+            else:
+                if self.must_home:
+                    self.do_set_position(
+                            self.rail.get_homing_info().position_endstop)
+                    self.limits = self.rail.get_range()
         elif gcmd.get_float('MOVE', None) is not None:
             movepos = gcmd.get_float('MOVE')
             sync = gcmd.get_int('SYNC', 1)
-            self.do_move(movepos, speed, accel, sync)
+            if not self.must_home:
+                self.do_move(movepos, speed, accel, sync)
+            elif self.check_move(movepos):
+                self.do_move(movepos, speed, accel, sync)
         elif gcmd.get_int('SYNC', 0):
             self.sync_print_time()
+    cmd_MANUAL_AXIS_help = "Command a manually configured axis"
+    def cmd_MANUAL_AXIS(self, gcmd):
+        return self.cmd_MANUAL_STEPPER(gcmd)
     # Toolhead wrappers to support homing
     def flush_step_generation(self):
         self.sync_print_time()

@@ -314,6 +314,14 @@ enabled:
   move completes, however if a manual stepper move uses SYNC=0 then
   future G-Code movement commands may run in parallel with the stepper
   movement.
+The following command is available when a manual_stepper specifies an axis.
+- `MANUAL_AXIS AXIS=axis_config_name [ENABLE=[0|1]] [SPEED=<speed>] 
+  [ACCEL=<accel>] [MOVE=<pos> [STOP_ON_ENDSTOP=[1|2|-1|-2]] 
+  [SYNC=0]]`: This command will alter the state of the axis created by the 
+  manual_steppers. Same as a MANAUL_STEPPER command except SET_POSITION 
+  can't be used to override the axis position, and the axis must be homed 
+  before using a MOVE command.If STOP_ON_ENDSTOP=1 is specified then the 
+  move will end early should all the endstops of the axis report as triggered.
 
 ## Extruder stepper Commands
 
