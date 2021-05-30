@@ -1843,8 +1843,9 @@ normal printer kinematics.
 #   Endstop switch detection pin. If specified, then one may perform
 #   "homing moves" by adding a STOP_ON_ENDSTOP parameter to
 #   MANUAL_STEPPER movement commands.
-#   if the section has an "axis" specified, then at least one endstop 
-#   is needed. The following attributes must then be specified by one 
+#   if an "axis" is specified, then at least one of the manual_stepper 
+#   sharing it must have an endstop. 
+#   The following attributes must then be specified by one 
 #   of the axis's manual_stepper.
 #position_endstop:
 #position_min:

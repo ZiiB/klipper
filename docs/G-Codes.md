@@ -320,7 +320,7 @@ The following command is available when a manual_stepper specifies an axis.
   [SYNC=0]]`: This command will alter the state of the axis created by the 
   manual_steppers. Same as a MANAUL_STEPPER command except SET_POSITION 
   can't be used to override the axis position, and the axis must be homed 
-  before using a MOVE command.If STOP_ON_ENDSTOP=1 is specified then the 
+  before using a MOVE command. If STOP_ON_ENDSTOP=1 is specified then the 
   move will end early should all the endstops of the axis report as triggered.
 
 ## Extruder stepper Commands
